@@ -14,31 +14,43 @@ int main() {
 
   std::queue<int> items;
   std::mutex items_mutex;
-  std::condition_variable cv;
+  std::condition_variable push_cv, pop_cv;
 
   std::thread producer([&]() {
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 100000; i++) {
       {
         std::lock_guard<std::mutex> g(items_mutex);
         items.push(i);
         count++;
       }
-      cv.notify_one();
+      push_cv.notify_all();
     }
-    done = true;
+
+    bool all_recvd = false;
+    while (!all_recvd) {
+      std::unique_lock<std::mutex> ul(items_mutex);
+      pop_cv.wait_for(ul, 1ms);
+
+      if (count == 0) {
+        done = true;
+        all_recvd = true;
+      }
+    }
   });
 
   std::thread consumer([&]() {
     while (!done) {
       std::unique_lock<std::mutex> ul(items_mutex);
 
-      cv.wait_for(ul, 10ms);
+      push_cv.wait_for(ul, 1ms);
 
       while (!items.empty()) {
         items.pop();
         // ...
         count--;
       }
+
+      pop_cv.notify_one();
     }
   });
 
